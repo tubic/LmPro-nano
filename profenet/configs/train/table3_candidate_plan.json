@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "protocol": "RDE-PPI three-fold complex split, seed 2022, single mutations",
+  "selection_policy": "Evaluate candidates in the declared order and accept the first candidate passing every threshold. No prediction-dependent weights or hyperparameters are permitted.",
+  "thresholds": {
+    "overall_pearson_min": 0.6365,
+    "overall_spearman_min": 0.5344,
+    "rmse_protocol_corrected_max": 1.3652,
+    "mae_protocol_corrected_max": 0.9617,
+    "auroc_min": 0.7523
+  },
+  "candidates": [
+    {
+      "rank": 1,
+      "name": "ProFE-Net",
+      "config": "configs/train/profe_enhanced_table3.yml",
+      "training": {
+        "optimizer_updates_per_fold": 10000,
+        "effective_batch_size": 32,
+        "learning_rate": 0.0001,
+        "weight_decay": 0.01
+      },
+      "description": "Manuscript-faithful frozen EnhancedRDE backbone with trainable residue/pair encoders, mutation embedding, geometric attention, global-max difference readout, and strict antisymmetry."
+    },
+    {
+      "rank": 2,
+      "name": "ProFE-RDE-baseline",
+      "config": "configs/train/profe_rde_table3.yml",
+      "pretraining": {
+        "optimizer_updates": 200000,
+        "effective_batch_size": 64,
+        "learning_rate": 0.0001
+      },
+      "downstream_training": {
+        "optimizer_updates_per_fold": 10000,
+        "effective_batch_size": 32,
+        "learning_rate": 0.0003
+      },
+      "description": "Same downstream transfer head using a locally self-trained official RDE backbone."
+    },
+    {
+      "rank": 3,
+      "name": "ProFE-fixed-equal-ensemble",
+      "inputs": [
+        "ProFE-Net",
+        "ProFE-RDE-baseline"
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ],
+      "description": "Prediction-independent arithmetic mean fixed before either outer prediction is generated."
+    }
+  ],
+  "supplement": {
+    "name": "ProFE-Net-PDB5",
+    "base_config": "configs/train/profe_enhanced_table3.yml",
+    "protocol_override": "pdb5",
+    "description": "Balanced PDB-disjoint five-fold evaluation reported separately for all, single, and multiple mutations; it is not compared directly with the copied three-fold baselines."
+  }
+}

@@ -9,6 +9,10 @@ from fairseq_models.modules.hmpn_encoder import *
 from fairseq_models.modules.framework_encoder import HierarchicalDecoder
 from fairseq_models.modules.nnutils import * 
 from fairseq_models.modules.utils import *
+from fairseq_models.modules.loss_normalization import (
+    normalize_refinement_losses,
+    token_weighted_structure_mean,
+)
 
 class BertonlyDecoder(nn.Module):
     def __init__(self, args):
@@ -33,7 +37,7 @@ class BertonlyDecoder(nn.Module):
 
         S = bind_I.view(B, paratope_N).tolist()
         S = [''.join([ALPHABET[S[i][j]] for j in range(paratope_N)]) for i in range(B)]
-        ppl = torch.exp(sloss / paratope_N)
+        ppl = torch.exp(sloss)
         return ReturnType(handle=S, ppl=ppl, bind_X=None)
         # B, paratope_N = paratope[1].size(0), paratope[1].size(1)
         # prob = F.softmax(enc_out.view(-1, len(ALPHABET)), dim=-1)
@@ -183,7 +187,13 @@ class FullshotRefineDecoderStack(ABModel):
             true_V = self.features._dihedrals(label_X)
             true_R, rmask_2D = inner_square_dist(label_X, antibody_A.clamp(max=1).float())
             true_D, mask_2D = self_square_dist(label_X, paratope_mask)
-            true_C, cmask_2D = full_square_dist(label_X, label_X, antibody_A, antibody_A)
+            true_C, cmask_2D = full_square_dist(
+                label_X,
+                label_X,
+                antibody_A,
+                antibody_A,
+                remove_diag=True,
+            )
             inter_D, imask_2D = cross_square_dist(label_X, epitope_X, paratope_mask, epitope_mask)
 
             dloss_t, vloss_t, rloss_t, iloss_t, closs_t = self.struct_loss(
@@ -196,21 +206,51 @@ class FullshotRefineDecoderStack(ABModel):
             closs = closs + closs_t * cmask_2D
     
 
-        sloss = sloss / paratope_mask.sum() # / self.args.refine_iteration
-        dloss = torch.sum(dloss) / mask_2D.sum() 
-        iloss = torch.sum(iloss) / imask_2D.sum() 
-        vloss = torch.sum(vloss) / paratope_mask.sum() 
-        # print('mask_2D', mask_2D.sum())
-        if self.hierarchical:
-            rloss = torch.sum(rloss) / rmask_2D.sum()
-            closs = torch.sum(closs) / cmask_2D.sum()
+        loss_normalization = getattr(self.args, 'loss_normalization', 'legacy')
+        if loss_normalization == 'token_mean':
+            geometry_terms = [
+                (dloss, mask_2D),
+                (iloss, imask_2D),
+                (vloss, paratope_mask),
+            ]
+            if self.hierarchical:
+                geometry_terms.extend(
+                    [(rloss, rmask_2D), (closs, cmask_2D)]
+                )
+            else:
+                geometry_terms.append(
+                    (rloss[:, :, :4, :4], rmask_2D[:, :, :4, :4])
+                )
+            seq_loss = (
+                sloss / paratope_mask.sum().clamp_min(1)
+                / self.args.refine_iteration
+            )
+            struct_loss = token_weighted_structure_mean(
+                geometry_terms,
+                paratope_mask.sum(dim=1),
+                self.args.refine_iteration,
+            )
         else:
-            rloss = torch.sum(rloss[:,:,:4,:4]) / rmask_2D[:,:,:4,:4].sum()
-            closs = 0
-
-
-        struct_loss = (dloss + iloss + vloss + rloss + closs) / paratope_mask.sum() # / self.args.refine_iteration
-        seq_loss = sloss
+            dloss = torch.sum(dloss) / mask_2D.sum()
+            iloss = torch.sum(iloss) / imask_2D.sum()
+            vloss = torch.sum(vloss) / paratope_mask.sum()
+            if self.hierarchical:
+                rloss = torch.sum(rloss) / rmask_2D.sum()
+                closs = torch.sum(closs) / cmask_2D.sum()
+            else:
+                rloss = (
+                    torch.sum(rloss[:, :, :4, :4])
+                    / rmask_2D[:, :, :4, :4].sum()
+                )
+                closs = 0
+            seq_loss, struct_loss = normalize_refinement_losses(
+                sloss,
+                dloss + iloss + vloss + rloss + closs,
+                paratope_mask.sum(),
+                self.args.refine_iteration,
+                loss_normalization,
+                legacy_average_refinement=False,
+            )
         return ReturnType(xloss=struct_loss, nll=seq_loss, bind_X=antibody_X[paratope_mask].detach(), handle=(epitope_X, epitope_A))
 
     def generate(
@@ -278,5 +318,5 @@ class FullshotRefineDecoderStack(ABModel):
 
         S = bind_I.tolist()
         S = [''.join([ALPHABET[S[i][j]] for j in range(paratope_N)]) for i in range(num_decode)]
-        ppl = torch.exp(sloss / paratope_N)
+        ppl = torch.exp(sloss)
         return ReturnType(handle=S, ppl=ppl, bind_X=antibody_X[paratope_mask].detach())

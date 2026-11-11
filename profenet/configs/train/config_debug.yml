@@ -1,0 +1,80 @@
+# ===================================================================
+#             最终版 RDE 模型完整配置文件
+#       (集成预处理, 特征增强, 注意力融合)
+# ===================================================================
+
+# 1. 模型相关配置
+model:
+  input_dim: 128
+  hidden_dim: 256
+
+  # GNN 上下文编码器配置
+  gnn:
+    k_neighbors: 16         # 构建图时，每个节点的邻居数量
+    num_gnn_layers: 3       # 每个GNN编码器的层数
+    dropout: 0.1            # GNN层中的dropout率
+  
+  # 交叉注意力融合模块配置
+  fusion:
+    num_fusion_layers: 4    # 堆叠的融合层数量
+    attention_heads: 4      # 交叉注意力头的数量
+    dropout: 0.1
+
+# 2. 特征预处理配置 (由 preprocess_features.py 使用)
+features:
+  # 几何特征配置
+  geometry:
+    curvature_neighbors: 15
+    # 热核特征 (HKS) 配置
+    hks:
+      n_eigenvectors: 100         # 拉普拉斯算子的特征向量数量
+      timesteps: [1.0, 10.0, 50.0] # 模拟热扩散的时间尺度 (多尺度)
+
+  # 拓扑特征配置
+  topology:
+    max_homology_dim: 2
+    # 距离阈值自适应策略
+    adaptive_threshold:
+      quantile: 0.85 # 使用85%分位数的Cα距离作为过滤上限
+
+  # 动力学特征配置
+  dynamics:
+    n_modes: 20  # 计算的非平凡正则模总数
+    # 直接作为特征的前N个低频模式
+    n_low_freq_modes_to_keep: 5 
+
+# 3. 训练过程相关配置
+training:
+  num_epochs: 100
+  batch_size: 8 # 由于模型更复杂，可能需要适当减小批次大小
+  learning_rate: 5.0e-5 # 复杂模型可能需要更小的学习率
+  weight_decay: 1.0e-5
+  max_grad_norm: 5.0
+  output_dir: './outputs/final_rde_runs_v2/'
+  seed: 42
+  loss_weights:
+    mle_1chis: 1.0
+    mle_2chis: 1.0
+    mle_3chis: 1.0
+    mle_4chis: 1.0
+
+# 4. 数据集相关配置
+data:
+  # 训练/验证集的主路径
+  # !! 请务必修改为您的实际路径 !!
+  pdbredo_dir: './data/PDB_REDO' 
+  clusters_path: './data/pdbredo_clusters.txt'
+  splits_path: './data/pdbredo_splits.txt'
+  # !! 预处理特征的保存路径 !!
+  processed_dir: './data/pdbredo_processed_final/'
+
+  # [最终调试] 暂时禁用所有 transform 来检查数据泄露问题
+  transform: null
+
+  # 验证集配置
+  validation:
+    pdbredo_dir: './data/PDB_REDO'
+    clusters_path: './data/pdbredo_clusters.txt'
+    splits_path: './data/pdbredo_splits.txt'
+    processed_dir: './data/pdbredo_processed_final/'
+    transform: null

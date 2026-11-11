@@ -1,0 +1,93 @@
+# 增强型RDE-PPI模型配置 - 基于PDB-REDO数据集
+data:
+  dataset_type: "pdbredo"
+  pdbredo_dir: "./data/PDB_REDO"
+  clusters_path: "./data/pdbredo_clusters.txt"
+  splits_path: "./data/pdbredo_splits.txt"
+  processed_dir: "./data/PDB_REDO_processed"
+  split: "train"
+  
+  # 转换操作，保持与原配置一致
+  transform:
+    # 只选择骨架原子和CB用于旋转异构体预测
+    - type: select_atom
+      resolution: backbone+CB
+    
+    # 随机patch选择，关注特定区域
+    - type: focused_random_patch
+      focus_attr: focus_flag
+      seed_nbh_size: 32
+      patch_size: 128
+    
+    # 扰动角度以增加数据多样性
+    - type: corrupt_chi_angle
+      ratio_mask: 0.1
+      maskable_flag_attr: focus_flag
+  
+  # 验证集配置
+  validation:
+    split: "val"
+    pdbredo_dir: "./data/PDB_REDO"
+    clusters_path: "./data/pdbredo_clusters.txt"
+    splits_path: "./data/pdbredo_splits.txt"
+    processed_dir: "./data/PDB_REDO_processed"
+    transform:
+      - type: select_atom
+        resolution: backbone+CB
+      - type: focused_random_patch
+        focus_attr: focus_flag
+        seed_nbh_size: 32
+        patch_size: 128
+
+# 模型配置
+model:
+  # 原始RDE编码器维度
+  input_dim: 128
+  hidden_dim: 256
+  output_dim: 2
+  
+  # 几何特征配置
+  geometric_options:
+    curvature_neighbors: 15
+    manifold_components: 5
+    use_laplacian: true
+    heat_kernel_timesteps: 10
+  
+  # 拓扑特征配置
+  topological_options:
+    max_homology_dim: 2
+    filtration_type: "alpha"
+    max_edge_length: 10.0
+    num_landscape_points: 20
+  
+  # 物理模型配置
+  physics:
+    temperature: 298.15
+    use_free_energy_decomposition: true
+
+# 训练配置
+training:
+  # 调小批大小以适应更复杂的特征计算
+  batch_size: 8
+  num_epochs: 50
+  learning_rate: 0.0001
+  weight_decay: 1e-5
+  
+  # 学习率调度
+  lr_factor: 0.8
+  lr_patience: 5
+  
+  # 保存频率和路径
+  save_every: 1000
+  output_dir: "./outputs/enhanced_rde_pdbredo"
+  save_path: "./trained_models/enhanced_rde_pdbredo.pt"
+  
+  # 梯度裁剪以稳定训练
+  max_grad_norm: 100.0
+  
+  # 损失权重 - 保持与原始配置一致
+  loss_weights:
+    mle_1chis: 0.25
+    mle_2chis: 0.25
+    mle_3chis: 0.25
+    mle_4chis: 0.25

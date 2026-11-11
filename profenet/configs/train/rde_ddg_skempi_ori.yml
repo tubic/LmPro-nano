@@ -1,0 +1,65 @@
+# rde_ddg_skempi_frozen.yml
+# --- 最终版 (适配 rde_ddg_integrated.py 模型) ---
+# 1. 包含了模型所需的 model 和 encoder 配置块。
+# 2. 采用单一学习率，适配骨干网络冻结的训练策略。
+# 3. 所有路径与代码实现完全匹配。
+
+model:
+  # 预训练骨干网络的检查点路径
+  rde_checkpoint: <PATH_TO_CHECKPOINT>
+  # 注意：以下参数主要由 encoder 块中的设置决定，此处保留用于参考
+  dropout: 0.30
+  loss_alpha: 0.2
+
+# [新增] 为 rde_ddg_integrated.py 模型中的任务特异性通道提供配置
+# 这些参数将用于初始化 PerResidueEncoder, ResiduePairEncoder, 和 GAEncoder
+encoder:
+  node_feat_dim: 256      # 单体特征维度 (示例值)
+  pair_feat_dim: 64       # 配对特征维度 (示例值)
+  num_layers: 3           # GAEncoder 的层数 (示例值)
+  #n_head: 4               # GAEncoder 注意力头数 (示例值)
+  #hidden_dim: 128         # GAEncoder 隐藏层维度 (示例值)
+
+features:
+  geometry:
+    curvature_neighbors: 15
+    hks:
+      n_eigenvectors: 100
+      timesteps:
+      - 1.0
+      - 10.0
+      - 50.0
+
+dataset:
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_parsed_wenzhang
+  processed_dir: ./data/SKEMPI_v2_features_wenzhang
+  num_cvfolds: 5
+  cvfold_index: 0
+  split_seed: 2022
+
+training:
+  # 输出目录，名称反映了“冻结骨干网络”的策略
+  output_dir: ./outputs/finetune_ddg_frozen_backbone
+  max_seq_len: 900
+  loss_weights:
+    regression: 1.0
+  num_epochs: 50
+  batch_size: 1
+  accumulation_steps: 16
+  num_workers: 4
+  seed: 2022
+  warmup_steps: 150 # 学习率预热步数
+  optimizer:
+    type: adamw
+    # 使用单一学习率 lr，因为只有任务特异性通道的参数被训练
+    lr: 0.0001
+    weight_decay: 1.0e-02
+    beta1: 0.9
+    beta2: 0.999
+  max_grad_norm: 1.0
+  scheduler:
+    factor: 0.8
+    patience: 5
+    min_lr: 1.0e-06

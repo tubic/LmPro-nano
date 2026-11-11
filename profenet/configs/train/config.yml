@@ -1,0 +1,71 @@
+# config_train.yml — 训练配置（多原子 IPA + 圆距损失 + 可切换 χ 提示）
+# 你只需要修改下面 data 路径即可。其余默认能和我给你的 train/eval 脚本与模型对上。
+model:
+  hidden_dim: 256
+  pair_dim: 128
+  n_layers: 6
+  n_heads: 16
+  dropout: 0.1
+  num_recycle: 0
+  aux_layer_idx: 2
+  use_chi_hint: true            # 训练阶段一般保留 χ 提示；评测脚本会默认关闭
+  gnn:
+    layers: 3
+    v_dim: 8
+    use_radius: false
+    radius: 12.0
+    k_neighbors: 16
+  ipa:
+    depth: 2
+    heads: 8
+    dropout: 0.1
+
+data:
+  # === 训练集（train）的数据与变换 ===
+  pdbredo_dir: './data/PDB_REDO'           # 放置 mmCIF/PDB 的根目录
+  processed_dir: './data/pdbredo_processed_final/'         # 预处理特征(geometry/local_env/dihedral)的目录（Adapter会使用）
+  clusters_path: './data/pdbredo_clusters.txt'
+  splits_path: './data/pdbredo_splits.txt'
+  transform:
+    - type: random_patch
+      patch_size: 256
+    - type: corrupt_chi_angle        # 这个变换会生成 `chi_corrupt`，即“χ 提示”来源
+      ratio_mask: 0.10               # 30% 的 χ 完全遮蔽（模型需纯预测）；其余按 add_noise 行为
+      add_noise: true
+      #noise_std_rad: 0.35            # 给未遮蔽的 χ 添加 ~20° 的高斯噪声（0.35rad≈20°）
+
+  # === 验证集（val/test）的数据与变换（训练脚本会读取此节做验证） ===
+  validation:
+    pdbredo_dir: './data/PDB_REDO'
+    processed_dir: './data/pdbredo_processed_final/'
+    clusters_path: './data/pdbredo_clusters.txt'
+    splits_path: './data/pdbredo_splits.txt'
+    transform:
+      - type: random_patch
+        patch_size: 256
+      - type: corrupt_chi_angle      # 为了口径统一依然产生 chi_corrupt；但评测/验证时会被模型忽略（见 use_chi_hint）
+        ratio_mask: 0.1              # 全遮蔽 -> 等价于不提供提示
+        add_noise: true
+
+training:
+  seed: 42
+  output_dir: 'outputs/strengthened_rde_runs/'
+  batch_size: 2
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  max_iterations: 100000
+  val_interval: 1000
+  aux_loss_weight: 0.5
+
+  # 余弦退火 + warmup
+  scheduler:
+    type: cosine_with_warmup
+    warmup_iterations: 2000
+
+  # 损失权重与设置
+  loss_weights:
+    chi_prediction_weights: [3.0, 2.0, 0.5, 0.5]  # 适度抬高 χ1/χ2（可在 1.5–2.0 间试）
+    symmetry_aware: true                          # 训练时对称性放宽（与评测口径一致）
+    denoising: 1.0                                # 多原子坐标去噪损失系数（若提供 pos_atoms* 则启用，否则自动为0）
+

@@ -98,11 +98,13 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
         traceable: bool = False,
         q_noise: float = 0.0,
         qn_block_size: int = 8,
+        use_rope: bool = True,
     ) -> None:
 
         super().__init__()
         self.padding_idx = padding_idx
         self.vocab_size = vocab_size
+        self.use_rope = use_rope
         self.dropout_module = FairseqDropout(
             dropout, module_name=self.__class__.__name__
         )
@@ -136,6 +138,8 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
             else None
         )
 
+        # With RoPE the attention modules encode position directly, so the learned
+        # absolute positional embedding is dropped (otherwise both would be applied).
         self.embed_positions = (
             PositionalEmbedding(
                 self.max_seq_len,
@@ -143,7 +147,7 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
                 padding_idx=(self.padding_idx if offset_positions_by_padding else None),
                 learned=self.learned_pos_embedding,
             )
-            if self.use_position_embeddings
+            if self.use_position_embeddings and not self.use_rope
             else None
         )
 
@@ -164,6 +168,7 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
                     export=export,
                     q_noise=q_noise,
                     qn_block_size=qn_block_size,
+                    use_rope=self.use_rope,
                 )
                 for _ in range(num_encoder_layers)
             ]
@@ -207,6 +212,7 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
         export,
         q_noise,
         qn_block_size,
+        use_rope=True,
     ):
         return TransformerSentenceEncoderLayer(
             embedding_dim=embedding_dim,
@@ -219,6 +225,7 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
             export=export,
             q_noise=q_noise,
             qn_block_size=qn_block_size,
+            use_rope=use_rope,
         )
 
     def prepare_for_tpu_(self, **kwargs):
@@ -278,7 +285,14 @@ class AntibodyTransformerSentenceEncoder(nn.Module):
 
         for i, layer in enumerate(self.layers):
             past_key_value = past_key_values[i] if past_key_values is not None else None
-            x, _ = layer(x, past_key_value=past_key_value)
+            # Pass the padding mask so attention cannot attend to pad positions.
+            # (Zeroing the pad embeddings above is not enough: k_proj's bias still makes
+            # pad keys non-zero, so they otherwise absorb a share of every softmax.)
+            x, _ = layer(
+                x,
+                self_attn_padding_mask=padding_mask,
+                past_key_value=past_key_value,
+            )
             if not last_state_only:
                 inner_states.append(x)
 

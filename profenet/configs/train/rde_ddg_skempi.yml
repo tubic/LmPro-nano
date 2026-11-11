@@ -1,0 +1,62 @@
+# rde_ddg_skempi.yml
+# --- 修改版 ---
+# 1. 启用并配置差分学习率 (head_lr, backbone_lr)。
+# 2. backbone_lr 远小于 head_lr，这是微调的标准实践。
+
+model:
+  rde_checkpoint: <PATH_TO_CHECKPOINT>
+  # rde_ddg.py 中的模型参数，保持不变
+  nhead: 4
+  head_dim: 64
+  head_layers: 1
+  mlp_ratio: 4.0
+  dropout: 0.15
+  readout_dim: 256
+  backbone_dim: 256
+  loss_alpha: 0.2 # 在 rde_ddg.py 中使用，MSE损失的权重
+
+features:
+  geometry:
+    curvature_neighbors: 15
+    hks:
+      n_eigenvectors: 100
+      timesteps:
+      - 1.0
+      - 10.0
+      - 50.0
+
+dataset:
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_parsed
+  processed_dir: ./data/SKEMPI_v2_features
+  num_cvfolds: 5
+  cvfold_index: 0
+  split_seed: 2022
+
+training:
+  output_dir: ./outputs/finetune_ddg_partial_ft
+  max_seq_len: 900
+  loss_weights:
+    regression: 1.0
+  num_epochs: 50
+  batch_size: 1
+  accumulation_steps: 16
+  num_workers: 4
+  seed: 2022
+  warmup_steps: 150 # 学习率预热步数
+  optimizer:
+    type: adamw # 推荐使用 AdamW
+    # --- 【核心修改】 ---
+    # 移除了单一学习率 lr，改用下面的差分学习率
+    head_lr: 0.0001           # 预测头的学习率 (较快)
+    backbone_lr: 0.000005     # 骨干网络微调的学习率 (较慢，通常是头的1/10到1/100)
+    # ---------------------
+    weight_decay: 1.0e-02 # 微调时可以适当增加 weight_decay
+    beta1: 0.9
+    beta2: 0.999
+  max_grad_norm: 1.0
+  scheduler:
+    factor: 0.8
+    patience: 5
+    min_lr: 1.0e-06

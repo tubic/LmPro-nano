@@ -1,0 +1,13 @@
+# Runtime dependencies for profenet/examples/predict_ddg*.py.
+# Install the matching PyTorch and torch-cluster wheels first; see the root README.
+biopython==1.83
+easydict==1.13
+einops==0.8.2
+joblib==1.5.3
+lmdb==2.3.0
+matplotlib==3.7.5
+numpy==1.23.3
+pandas==2.0.3
+PyYAML==6.0.3
+torch-geometric==2.7.0
+tqdm==4.66.2

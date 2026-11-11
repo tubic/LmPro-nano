@@ -1,0 +1,39 @@
+protein:
+  pdb_path: "./data/structures/7FAE.pdb"
+  chain_A: "A"  # Receptor chain
+  chain_B: "H"  # Ligand chain (Heavy chain)
+  chain_C: "L"  # Additional chain (Light chain)
+  interface_cutoff: 8.0  # Angstroms
+
+model:
+  input_dim: 128
+  hidden_dim: 256
+  output_dim: 2  # [stability, binding]
+  use_geometric: true
+  use_topological: true
+  geometric_options:
+    curvature_neighbors: 15
+    manifold_components: 5
+  topological_options:
+    max_homology_dim: 2
+    filtration_type: "alpha"
+
+mutations:
+  - original: "ARG"
+    position: 34
+    mutated: "ALA"
+    chain: "A"
+  - original: "TYR"
+    position: 53
+    mutated: "PHE"
+    chain: "B"
+  - original: "ASP"
+    position: 98
+    mutated: "ASN"
+    chain: "C"
+
+output:
+  save_path: "./results/enhanced_analysis.npy"
+  visualize: true
+  include_geometric_features: true
+  include_topological_features: true

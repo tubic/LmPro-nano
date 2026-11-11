@@ -1,0 +1,62 @@
+# rde_ddg_skempi_frozen.yml
+# --- 最终版 (适配冻结骨干网络的训练脚本) ---
+# 1. 移除差分学习率，使用单一学习率 lr。
+# 2. 更新输出目录名称以反映训练策略。
+
+model:
+  rde_checkpoint: <PATH_TO_CHECKPOINT>
+  # rde_ddg.py 中的模型参数，保持不变
+  nhead: 4
+  head_dim: 256
+  head_layers: 1
+  mlp_ratio: 4.0
+  dropout: 0.15
+  readout_dim: 256
+  backbone_dim: 256
+  loss_alpha: 0.2 
+
+features:
+  geometry:
+    curvature_neighbors: 15
+    hks:
+      n_eigenvectors: 100
+      timesteps:
+      - 1.0
+      - 10.0
+      - 50.0
+
+dataset:
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_parsed
+  processed_dir: ./data/SKEMPI_v2_features
+  num_cvfolds: 5
+  cvfold_index: 0
+  split_seed: 2022
+
+training:
+  # [修改] 更新输出目录名，使其更具描述性
+  output_dir: ./outputs/finetune_ddg_frozen_backbone
+  max_seq_len: 500
+  loss_weights:
+    regression: 1.0
+  num_epochs: 50
+  batch_size: 1
+  accumulation_steps: 16
+  num_workers: 4
+  seed: 2022
+  warmup_steps: 150 # 学习率预热步数
+  optimizer:
+    type: adamw # 推荐使用 AdamW
+    # --- 【核心修改】 ---
+    # 使用单一学习率 lr，因为骨干网络被冻结
+    lr: 0.0001
+    # ---------------------
+    weight_decay: 1.0e-02
+    beta1: 0.9
+    beta2: 0.999
+  max_grad_norm: 1.0
+  scheduler:
+    factor: 0.8
+    patience: 5
+    min_lr: 1.0e-06

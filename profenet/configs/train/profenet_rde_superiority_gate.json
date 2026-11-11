@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-03T15:56:14+08:00",
+  "name": "ProFE-Net manuscript reproduction and RDE superiority gate",
+  "protocol": "RDE-PPI three-fold complex split, seed 2022, single mutations",
+  "decision_rule": "All five metrics must pass. The thresholds are the metric-wise envelope required to reproduce the manuscript ProFE-Net row and outperform both the manuscript RDE-Net row and the latest locally trained RDE result at four-decimal reporting precision.",
+  "thresholds": {
+    "overall_pearson": {
+      "direction": "min",
+      "value": 0.6464
+    },
+    "overall_spearman": {
+      "direction": "min",
+      "value": 0.5344
+    },
+    "rmse": {
+      "direction": "max",
+      "value": 1.3270
+    },
+    "mae": {
+      "direction": "max",
+      "value": 0.9391
+    },
+    "auroc": {
+      "direction": "min",
+      "value": 0.7523
+    }
+  },
+  "reference_rows": {
+    "manuscript_profenet": {
+      "overall_pearson": 0.6365,
+      "overall_spearman": 0.5344,
+      "rmse": 1.3652,
+      "mae": 0.9617,
+      "auroc": 0.7523
+    },
+    "manuscript_rde": {
+      "overall_pearson": 0.6421,
+      "overall_spearman": 0.5271,
+      "rmse": 1.3333,
+      "mae": 0.9392,
+      "auroc": 0.7367
+    },
+    "local_trained_rde": {
+      "overall_pearson": 0.6463356871843721,
+      "overall_spearman": 0.5259406588434231,
+      "rmse": 1.3271366138343366,
+      "mae": 0.9401524641390417,
+      "auroc": 0.7357063191892232
+    }
+  },
+  "locked_sources": {
+    "manuscript_pdf": {
+      "path": "start.pdf",
+      "sha256": "24aa87ee1925b351d25daffa758e217e2a78c152eb78a611dae068d3e5f8e901"
+    },
+    "local_rde_metrics": {
+      "path": "outputs/table3_runs/table3-rde_profe-rde3_2026_08_02__21_22_39_best191k_full_bs16_acc2/table3_metrics.csv",
+      "sha256": "7945931b6382fac8b21c122bf338dd2a25547ca237a30189c855e0e88f69bf53"
+    },
+    "prior_candidate_plan": {
+      "path": "configs/train/table3_candidate_plan.json",
+      "sha256": "a733a5cd9171143eb4e8a63f5fdbb2906ba9f32a9eb017f737494efc500b1ea2"
+    }
+  },
+  "selection_policy": "Pretraining checkpoints are selected only by the fixed PDB-REDO validation loss. No SKEMPI outer-fold metric may be used to select a checkpoint, seed, ensemble weight, or hyperparameter."
+}

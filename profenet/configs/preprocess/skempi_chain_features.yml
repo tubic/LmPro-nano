@@ -1,0 +1,6 @@
+# Run from the profenet/ directory after downloading SKEMPI.
+# Configuration for the restored preprocess_features_skempi.py script.
+dataset:
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  processed_dir: ./data/skempi_chain_features

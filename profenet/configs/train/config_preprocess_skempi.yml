@@ -1,0 +1,25 @@
+# config_preprocess_skempi.yml
+# (专门用于 preprocess_features_skempi.py)
+
+# 数据路径配置
+data:
+  # SKEMPI v2 数据集的基础目录
+  base_dir: "./data/SKEMPI_v2"
+  
+  # 指定一个目录来保存处理好的特征文件
+  output_dir: "./data/skempi_processed_features"
+
+# 特征计算参数
+features:
+  geometry:
+    curvature_neighbors: 15
+    hks:
+      n_eigenvectors: 100
+      timesteps: [1.0, 10.0, 50.0]
+  topology:
+    max_homology_dim: 2
+    adaptive_threshold:
+      quantile: 0.85
+  dynamics:
+    n_modes: 20
+    n_low_freq_modes_to_keep: 5

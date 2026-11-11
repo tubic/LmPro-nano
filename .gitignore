@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+build/
+dist/
+
+# Editors / OS
+.*.sw[a-p]
+*~
+.DS_Store
+.idea/
+.vscode/
+！
+
+# Environments
+.venv/
+venv/
+env/
+
+# Logs / runtime
+*.log
+wandb/
+runs/
+tensorboard/
+
+# Model weights and large training data — hosted on the Zenodo record (see README),
+# not in git. All weights live in the complete Zenodo archive.
+*.pt
+*.ckpt
+abgnn/finetune/**/train_data.jsonl
+
+# Source-only GitHub release: datasets and generated results
+*.pth
+*.onnx
+*.safetensors
+*.csv
+*.tsv
+*.jsonl
+*.pdb
+*.cif
+*.mmcif
+*.fa
+*.faa
+*.fasta
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.bin
+*.idx
+*.lmdb
+*.out
+abgnn/nano_data/
+abgnn/final*_data/
+release_evidence/
+profenet/outputs/
+.pytest_cache/
+
+# Archives and generated checksum lists
+*.zip
+*.tar
+*.tar.gz
+*.tar.zst
+*.sha256
+*SHA256*
+SHA256SUMS

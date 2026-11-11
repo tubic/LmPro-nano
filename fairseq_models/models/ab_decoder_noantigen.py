@@ -1,3 +1,5 @@
+import contextlib
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +11,10 @@ from fairseq_models.modules.hmpn_encoder import *
 from fairseq_models.modules.framework_encoder import HierarchicalDecoder
 from fairseq_models.modules.nnutils import * 
 from fairseq_models.modules.utils import *
+from fairseq_models.modules.loss_normalization import (
+    normalize_refinement_losses,
+    token_weighted_structure_mean,
+)
 
 class NoAntigenFullshotRefineDecoder(ABModel):
 
@@ -24,7 +30,15 @@ class NoAntigenFullshotRefineDecoder(ABModel):
         self.W_t = nn.Linear(self.embedding.dim(), args.hidden_size)
         self.U_i = nn.Linear(self.embedding.dim(), args.hidden_size)
 
-        # self.W_trans = nn.Linear(args.hidden_size, self.embedding.dim())
+        # Residual MLP stack (paper §"decoder architecture": residual connections on the
+        # complex representation after message passing; captures nanobody CDR3-specific
+        # features). Applied between seq_mpn and the sequence head W_s, matching
+        # FullshotRefineDecoder in ab_decoder.py.
+        self.mlp1 = nn.Linear(args.hidden_size, args.hidden_size)
+        self.mlp2 = nn.Linear(args.hidden_size, args.hidden_size)
+        self.mlp3 = nn.Linear(args.hidden_size, args.hidden_size)
+        self.use_residual_mlp = getattr(args, 'use_residual_mlp', True)
+
         self.coord_loss = nn.SmoothL1Loss(reduction='sum')
 
         if args.hierarchical:
@@ -86,52 +100,16 @@ class NoAntigenFullshotRefineDecoder(ABModel):
         
         # Refine
         dloss = vloss = rloss = sloss = closs = 0
+        # How many trailing refinement iterations to backpropagate through.
+        # <= 0 (default) means ALL of them, so the design loss reaches the framework
+        # encoder / AbBERT soft prediction / prefix encoder instead of only the last step.
+        n_bptt = getattr(self.args, 'bptt_iterations', -1)
+        if n_bptt is None or n_bptt <= 0 or n_bptt > self.args.refine_iteration:
+            n_bptt = self.args.refine_iteration
+        first_grad_iter = self.args.refine_iteration - n_bptt
+
         for t in range(self.args.refine_iteration):
-            if t < self.args.refine_iteration - 1:
-                with torch.no_grad():
-                    # sequence update
-                    antibody_V = self.features._dihedrals(antibody_X.detach())
-                    complex_V = antibody_V.detach()
-                    complex_X = antibody_X.detach()
-                    complex_A = antibody_A.detach()
-
-                    # sequence message passing
-                    complex_h = self.W_i(antibody_h_0)
-                    complex_h, _ = self.seq_mpn(complex_X, complex_V, complex_h, complex_A, antibody_N=antibody_N, paratope_mask=paratope_mask, pretrained_embedding=pretrained_embedding)
-                    logits = self.W_s(complex_h[:, :antibody_N])
-                    logits = logits[paratope_mask]
-                    antibody_h_0 = antibody_h_0.clone()
-
-                    # calculate sequence loss
-                    snll = self.ce_loss(logits, flatten_cdr_S)
-                    sloss = sloss + torch.sum(snll)
-
-                    # update paratope embedding
-                    probs = F.softmax(logits, dim=-1)
-                    antibody_h_0[paratope_mask] = self.W_t(self.embedding.soft_forward(probs))
-
-                    # structrue message passing
-                    complex_h = self.W_i(antibody_h_0)
-                    complex_h, complex_X = self.struct_mpn(complex_X, complex_V, complex_h, complex_A, antibody_N=antibody_N, paratope_mask=paratope_mask, pretrained_embedding=pretrained_embedding)
-                    antibody_X = antibody_X.clone()
-                    antibody_X[paratope_mask] = complex_X[:, :antibody_N][paratope_mask]
-
-                    ratio = (t + 1) / self.args.refine_iteration
-                    label_X = true_antibody_X * ratio + antibody_X * (1 - ratio)
-                
-                    true_V = self.features._dihedrals(label_X)
-                    true_R, rmask_2D = inner_square_dist(label_X, antibody_A.clamp(max=1).float())
-                    true_D, mask_2D = self_square_dist(label_X, paratope_mask)
-                    true_C, cmask_2D = full_square_dist(label_X, label_X, antibody_A, antibody_A)
-
-                    dloss_t, vloss_t, rloss_t, closs_t = self.struct_loss(
-                            antibody_X, true_V, true_R, true_D, true_C
-                    )
-                    vloss = vloss + vloss_t * paratope_mask
-                    dloss = dloss + dloss_t * mask_2D
-                    rloss = rloss + rloss_t * rmask_2D
-                    closs = closs + closs_t * cmask_2D
-            else:
+            with (contextlib.nullcontext() if t >= first_grad_iter else torch.no_grad()):
                 # sequence update
                 antibody_V = self.features._dihedrals(antibody_X.detach())
                 complex_V = antibody_V.detach()
@@ -141,6 +119,12 @@ class NoAntigenFullshotRefineDecoder(ABModel):
                 # sequence message passing
                 complex_h = self.W_i(antibody_h_0)
                 complex_h, _ = self.seq_mpn(complex_X, complex_V, complex_h, complex_A, antibody_N=antibody_N, paratope_mask=paratope_mask, pretrained_embedding=pretrained_embedding)
+                # 3-layer residual MLP: enhance the post-message-passing complex
+                # representation before the sequence head (captures CDR3-specific features).
+                if self.use_residual_mlp:
+                    complex_h = complex_h + F.relu(self.mlp1(complex_h))
+                    complex_h = complex_h + F.relu(self.mlp2(complex_h))
+                    complex_h = complex_h + F.relu(self.mlp3(complex_h))
                 logits = self.W_s(complex_h[:, :antibody_N])
                 logits = logits[paratope_mask]
                 antibody_h_0 = antibody_h_0.clone()
@@ -165,7 +149,13 @@ class NoAntigenFullshotRefineDecoder(ABModel):
                 true_V = self.features._dihedrals(label_X)
                 true_R, rmask_2D = inner_square_dist(label_X, antibody_A.clamp(max=1).float())
                 true_D, mask_2D = self_square_dist(label_X, paratope_mask)
-                true_C, cmask_2D = full_square_dist(label_X, label_X, antibody_A, antibody_A)
+                true_C, cmask_2D = full_square_dist(
+                    label_X,
+                    label_X,
+                    antibody_A,
+                    antibody_A,
+                    remove_diag=True,
+                )
 
                 dloss_t, vloss_t, rloss_t, closs_t = self.struct_loss(
                         antibody_X, true_V, true_R, true_D, true_C
@@ -177,20 +167,46 @@ class NoAntigenFullshotRefineDecoder(ABModel):
 
     
 
-        sloss = sloss / paratope_mask.sum() / self.args.refine_iteration
-        dloss = torch.sum(dloss) / mask_2D.sum() 
-        vloss = torch.sum(vloss) / paratope_mask.sum() 
-        # print('mask_2D', mask_2D.sum())
-        if self.hierarchical:
-            rloss = torch.sum(rloss) / rmask_2D.sum()
-            closs = torch.sum(closs) / cmask_2D.sum()
+        loss_normalization = getattr(self.args, 'loss_normalization', 'legacy')
+        if loss_normalization == 'token_mean':
+            geometry_terms = [(dloss, mask_2D), (vloss, paratope_mask)]
+            if self.hierarchical:
+                geometry_terms.extend(
+                    [(rloss, rmask_2D), (closs, cmask_2D)]
+                )
+            else:
+                geometry_terms.append(
+                    (rloss[:, :, :4, :4], rmask_2D[:, :, :4, :4])
+                )
+            seq_loss = (
+                sloss / paratope_mask.sum().clamp_min(1)
+                / self.args.refine_iteration
+            )
+            struct_loss = token_weighted_structure_mean(
+                geometry_terms,
+                paratope_mask.sum(dim=1),
+                self.args.refine_iteration,
+            )
         else:
-            rloss = torch.sum(rloss[:,:,:4,:4]) / rmask_2D[:,:,:4,:4].sum()
-            closs = 0
-
-
-        struct_loss = (dloss + vloss + rloss + closs) / paratope_N / self.args.refine_iteration
-        seq_loss = sloss
+            dloss = torch.sum(dloss) / mask_2D.sum()
+            vloss = torch.sum(vloss) / paratope_mask.sum()
+            if self.hierarchical:
+                rloss = torch.sum(rloss) / rmask_2D.sum()
+                closs = torch.sum(closs) / cmask_2D.sum()
+            else:
+                rloss = (
+                    torch.sum(rloss[:, :, :4, :4])
+                    / rmask_2D[:, :, :4, :4].sum()
+                )
+                closs = 0
+            seq_loss, struct_loss = normalize_refinement_losses(
+                sloss,
+                dloss + vloss + rloss + closs,
+                paratope_mask.sum(),
+                self.args.refine_iteration,
+                loss_normalization,
+                legacy_structure_denominator=paratope_N,
+            )
         return ReturnType(xloss=struct_loss, nll=seq_loss, bind_X=antibody_X[paratope_mask].detach())
 
     def generate(
@@ -227,6 +243,12 @@ class NoAntigenFullshotRefineDecoder(ABModel):
             # sequence message passing
             complex_h = self.W_i(antibody_h_0)
             complex_h, _ = self.seq_mpn(complex_X, complex_V, complex_h, complex_A, antibody_N=antibody_N, paratope_mask=paratope_mask, pretrained_embedding=pretrained_embedding)
+            # 3-layer residual MLP: enhance the post-message-passing complex
+            # representation before the sequence head (captures CDR3-specific features).
+            if self.use_residual_mlp:
+                complex_h = complex_h + F.relu(self.mlp1(complex_h))
+                complex_h = complex_h + F.relu(self.mlp2(complex_h))
+                complex_h = complex_h + F.relu(self.mlp3(complex_h))
             logits = self.W_s(complex_h[:, :antibody_N])
             logits = logits[paratope_mask]
             antibody_h_0 = antibody_h_0.clone()
@@ -249,5 +271,5 @@ class NoAntigenFullshotRefineDecoder(ABModel):
 
         S = bind_I.view(B, paratope_N).tolist()
         S = [''.join([ALPHABET[S[i][j]] for j in range(paratope_N)]) for i in range(B)]
-        ppl = torch.exp(sloss / paratope_N)
+        ppl = torch.exp(sloss)
         return ReturnType(handle=S, ppl=ppl, bind_X=antibody_X[paratope_mask].detach())

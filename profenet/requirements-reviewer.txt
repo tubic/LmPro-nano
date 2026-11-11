@@ -1,0 +1,11 @@
+# Lightweight environment used to regenerate the reviewer-facing Table 3 reports.
+# Python 3.10.20 and torch 2.4.1+cu121 were used for the locked outputs.
+numpy==2.2.6
+pandas==2.3.3
+pytest==9.0.3
+PyYAML==6.0.3
+scikit-learn==1.7.2
+scipy==1.15.3
+torch==2.4.1
+torch-geometric==2.5.3
+tqdm==4.67.3

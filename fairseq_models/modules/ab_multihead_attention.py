@@ -109,32 +109,36 @@ class MultiheadAttention(nn.Module):
         
         freqs = torch.einsum('i,j->ij', t, inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
-        
-        self.register_buffer('cos_cached', emb.cos())
-        self.register_buffer('sin_cached', emb.sin())
 
-    def apply_rotary_pos_emb(self, q, k, position_ids):
-        """对q和k张量应用旋转位置编码"""
-        # 获取q和k的实际序列长度
+        # persistent=False: the caches are deterministic (recomputed at __init__), so they
+        # are kept out of the checkpoint. This avoids strict-load "missing/unexpected key"
+        # failures when mixing RoPE and non-RoPE checkpoints.
+        self.register_buffer('cos_cached', emb.cos(), persistent=False)
+        self.register_buffer('sin_cached', emb.sin(), persistent=False)
+
+    def apply_rotary_pos_emb(self, q, k):
+        """Apply rotary position embeddings to q and k.
+
+        q: [B*H, q_len, head_dim] — real query tokens, rotary positions 0..q_len-1.
+        k: [B*H, k_len, head_dim]. Under prefix-tuning k is [prefix(P) || real(q_len)];
+           the real keys are aligned to the queries (positions 0..q_len-1) and the P
+           learned prefix keys are position-free (left un-rotated). P == 0 during
+           pretraining, so this reduces to plain RoPE with matched q/k positions.
+        """
         q_len = q.size(1)
-        k_len = k.size(1)
-        
-        # 根据实际序列长度获取位置编码
-        cos_q = F.embedding(position_ids[:q_len], self.cos_cached)
-        sin_q = F.embedding(position_ids[:q_len], self.sin_cached)
-        cos_k = F.embedding(position_ids[:k_len], self.cos_cached)
-        sin_k = F.embedding(position_ids[:k_len], self.sin_cached)
-        
-        # 调整维度用于广播
-        cos_q = cos_q.unsqueeze(0)  # [1, q_len, dim]
-        sin_q = sin_q.unsqueeze(0)  # [1, q_len, dim] 
-        cos_k = cos_k.unsqueeze(0)  # [1, k_len, dim]
-        sin_k = sin_k.unsqueeze(0)  # [1, k_len, dim]
-        
-        # 分别对q和k应用旋转编码
-        q_embed = (q * cos_q) + (self._rotate_half(q) * sin_q)
-        k_embed = (k * cos_k) + (self._rotate_half(k) * sin_k)
-        
+        prefix_len = k.size(1) - q_len
+
+        cos = self.cos_cached[:q_len].unsqueeze(0)  # [1, q_len, head_dim]
+        sin = self.sin_cached[:q_len].unsqueeze(0)  # [1, q_len, head_dim]
+
+        q_embed = (q * cos) + (self._rotate_half(q) * sin)
+        if prefix_len > 0:
+            k_prefix, k_real = k[:, :prefix_len], k[:, prefix_len:]
+            k_real = (k_real * cos) + (self._rotate_half(k_real) * sin)
+            k_embed = torch.cat([k_prefix, k_real], dim=1)
+        else:
+            k_embed = (k * cos) + (self._rotate_half(k) * sin)
+
         return q_embed, k_embed
 
     def prepare_for_onnx_export_(self):
@@ -192,6 +196,8 @@ class MultiheadAttention(nn.Module):
             and not static_kv
             and not torch.jit.is_scripting()
             and past_key_value is None
+            and not self.use_rope  # RoPE is applied in the manual path below; the fused
+                                   # kernel would bypass it, so force the manual path.
         ):
             assert key is not None and value is not None
             return F.multi_head_attention_forward(
@@ -285,8 +291,19 @@ class MultiheadAttention(nn.Module):
             )
 
         if past_key_value is not None:
+            prefix_len = past_key_value[0].contiguous().view(bsz * self.num_heads, -1, self.head_dim).size(1)
             k = torch.cat([past_key_value[0].contiguous().view(bsz * self.num_heads, -1, self.head_dim), k], dim=1)
             v = torch.cat([past_key_value[1].contiguous().view(bsz * self.num_heads, -1, self.head_dim), v], dim=1)
+            # The prefix keys are real (never padded), so widen key_padding_mask by
+            # prefix_len False entries; otherwise its length no longer matches src_len.
+            if key_padding_mask is not None:
+                key_padding_mask = torch.cat(
+                    [
+                        key_padding_mask.new_zeros(key_padding_mask.size(0), prefix_len),
+                        key_padding_mask,
+                    ],
+                    dim=1,
+                )
 
         if saved_state is not None:
             # saved states are stored with shape (bsz, num_heads, seq_len, head_dim)
@@ -332,8 +349,7 @@ class MultiheadAttention(nn.Module):
 
         # Apply rotary position embeddings
         if self.use_rope and k is not None:
-            position_ids = torch.arange(src_len, device=k.device)
-            q, k = self.apply_rotary_pos_emb(q, k, position_ids)
+            q, k = self.apply_rotary_pos_emb(q, k)
 
         # This is part of a workaround to get around fork/join parallelism
         # not supporting Optional types.

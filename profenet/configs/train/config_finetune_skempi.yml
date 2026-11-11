@@ -1,0 +1,85 @@
+# ===================================================================
+#             RDE 模型微调配置文件 (SKEMPI ΔΔG 预测任务)
+# ===================================================================
+
+# 1. 模型相关配置
+model:
+  # 1a. 新增的、可训练的 DDG 预测头配置
+  ddg:
+    hidden_dim: 256
+
+  # 1b. 冻结的、作为特征提取器的 RDE 模型配置
+  rde:
+    # 关键：指定预训练权重的路径。
+    # 此路径根据您预训练配置中的 output_dir 推断得出，请根据实际情况修改。
+    checkpoint: './outputs/final_rde_runs_v2/run_20250801_205930/best_model.pt'
+
+    # =====================================================================
+    # !! 以下部分必须与您的预训练配置文件 config.yml 完全一致 !!
+    # !!          请直接从 config.yml 复制粘贴过来          !!
+    # =====================================================================
+    model:
+      input_dim: 128
+      hidden_dim: 256
+      gnn:
+        k_neighbors: 16
+        num_gnn_layers: 3
+        dropout: 0.1
+      fusion:
+        num_fusion_layers: 4
+        attention_heads: 4
+        dropout: 0.1
+    
+    features:
+      geometry:
+        curvature_neighbors: 15
+        hks:
+          n_eigenvectors: 100
+          timesteps: [1.0, 10.0, 50.0]
+      topology:
+        max_homology_dim: 2
+        adaptive_threshold:
+          quantile: 0.85
+      dynamics:
+        n_modes: 20
+        n_low_freq_modes_to_keep: 5
+    # =====================================================================
+    # !!                  以上部分必须保持一致                  !!
+    # =====================================================================
+
+
+# 2. 训练过程相关配置 (针对微调任务调整)
+
+training:
+  num_epochs: 150
+  batch_size: 8
+  learning_rate: 1.0e-5
+  weight_decay: 1.0e-5
+  output_dir: './outputs/finetune_skempi_runs/'
+  seed: 42
+
+  # --- 关键修正：添加这整个 scheduler 模块 ---
+  scheduler:
+    factor: 0.5      # 学习率衰减系数
+    patience: 10     # 在减少学习率前，等待验证集损失改善的轮数
+    min_lr: 1.0e-6   # 最小学习率
+
+# 3. 数据集相关配置 (更换为SKEMPI数据集)
+data:
+  # 用于交叉验证的折数
+  num_cvfolds: 5
+  
+  # SKEMPI数据集的CSV文件路径
+  csv_path: './data/SKEMPI_v2/skempi_v2.csv'
+  
+  # SKEMPI的PDB文件所在目录
+  pdb_dir: './data/SKEMPI_v2/PDBs'
+  
+  # SKEMPI预处理特征的保存路径 (由 preprocess_features_skempi.py 生成)
+  processed_dir: './data/skempi_processed_features'
+
+  # 缓存目录，用于加速数据加载
+  cache_dir: './data/SKEMPI_v2_cache'
+
+  # 微调时通常不使用数据增强
+  transform: null

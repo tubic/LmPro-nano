@@ -7,16 +7,31 @@ from collections import namedtuple
 ReturnType = namedtuple('ReturnType',('xloss','nll','ppl','bind_X','handle'), defaults=(None, None, None, None, None))
 
 
-def kabsch(A, B):
-    a_mean = A.mean(dim=1, keepdims=True)
-    b_mean = B.mean(dim=1, keepdims=True)
+def kabsch(A, B, mask=None):
+    """Align ``A`` onto ``B`` with a proper, optionally masked rotation."""
+    if mask is None:
+        weights = torch.ones_like(A[..., :1])
+    else:
+        weights = mask.to(dtype=A.dtype, device=A.device).unsqueeze(-1)
+    weight_sum = weights.sum(dim=1, keepdim=True).clamp_min(1e-8)
+    a_mean = (A * weights).sum(dim=1, keepdim=True) / weight_sum
+    b_mean = (B * weights).sum(dim=1, keepdim=True) / weight_sum
     A_c = A - a_mean
     B_c = B - b_mean
     # Covariance matrix
-    H = torch.bmm(A_c.transpose(1,2), B_c)  # [B, 3, 3]
+    H = torch.bmm((A_c * weights).transpose(1,2), B_c)  # [B, 3, 3]
     U, S, V = torch.svd(H)
-    # Rotation matrix
-    R = torch.bmm(V, U.transpose(1,2))  # [B, 3, 3]
+    # Restrict the solution to a proper rotation; reflections are not valid
+    # rigid-body superpositions for molecular coordinates.
+    base_rotation = torch.bmm(V, U.transpose(1,2))
+    correction = torch.eye(3, dtype=A.dtype, device=A.device).unsqueeze(0)
+    correction = correction.repeat(A.size(0), 1, 1)
+    correction[:, -1, -1] = torch.where(
+        torch.det(base_rotation) < 0,
+        correction.new_tensor(-1.0),
+        correction.new_tensor(1.0),
+    )
+    R = torch.bmm(torch.bmm(V, correction), U.transpose(1,2))
     # Translation vector
     t = b_mean - torch.bmm(R, a_mean.transpose(1,2)).transpose(1,2)
     A_aligned = torch.bmm(R, A.transpose(1,2)).transpose(1,2) + t
@@ -31,7 +46,7 @@ def rigid_transform(X, R, t):
 
 # A: [B, N, 3], B: [B, N, 3], mask: [B, N]
 def compute_rmsd(A, B, mask):
-    A_aligned, _, _ = kabsch(A, B)
+    A_aligned, _, _ = kabsch(A, B, mask)
     rmsd = ((A_aligned - B) ** 2).sum(dim=-1)
     rmsd = torch.sum(rmsd * mask, dim=-1) / (mask.sum(dim=-1) + 1e-6)
     return rmsd.sqrt()

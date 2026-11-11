@@ -1,0 +1,75 @@
+# config.yml (Final Corrected Version)
+
+# 1. 模型相关配置
+model:
+  input_dim: 128
+  hidden_dim: 256
+  gnn:
+    k_neighbors: 16
+    num_gnn_layers: 3
+    dropout: 0.1
+  fusion:
+    num_fusion_layers: 4
+    attention_heads: 4
+    dropout: 0.1
+
+# 2. 特征预处理配置 (由 preprocess_features.py 使用)
+features:
+  geometry:
+    curvature_neighbors: 15
+    hks:
+      n_eigenvectors: 100
+      timesteps: [1.0, 10.0, 50.0]
+  topology:
+    max_homology_dim: 2
+    adaptive_threshold:
+      quantile: 0.85
+  dynamics:
+    n_modes: 20
+    n_low_freq_modes_to_keep: 5 
+
+# 3. 训练过程相关配置
+training:
+  num_epochs: 100
+  batch_size: 8
+  learning_rate: 5.0e-5
+  weight_decay: 1.0e-5
+  max_grad_norm: 5.0
+  output_dir: './outputs/final_rde_runs_v2/'
+  seed: 42
+  loss_weights:
+    mle_1chis: 1.0
+    mle_2chis: 1.0
+    mle_3chis: 1.0
+    mle_4chis: 1.0
+
+# 4. 数据集相关配置
+data:
+  # 请确保这里的路径是正确的绝对路径
+  pdbredo_dir: './data/PDB_REDO' 
+  clusters_path: './data/pdbredo_clusters.txt'
+  splits_path: './data/pdbredo_splits.txt'
+  processed_dir: './data/pdbredo_processed_final/'
+
+  # ========================== 核心修正：定义完整且正确的变换流程 ============================ #
+  transform:
+    # 第1步：从完整的重原子数据中，创建出模型要使用的原子数据(pos_atoms)
+    - type: 'select_atom'
+      resolution: 'full'
+
+    # 第2步：从完整的蛋白质链中，随机选择一个区域(patch)作为训练样本，并标记核心区域(core_flag)
+    - type: 'random_patch'
+      patch_size: 128  # 可以根据需要调整patch的大小
+
+    # 第3步：在选出的patch的核心区域(core_flag)中，随机掩码一部分氨基酸
+    - type: 'random_mask_amino_acids'
+      mask_token: 20
+      mask_ratio_in_all: 0.15
+      maskable_flag_attr: 'core_flag' # 明确使用 random_patch 生成的 core_flag
+
+  validation:
+    # 验证集通常不需要patch和mask等数据增强，只需要选择原子即可
+    transform: 
+      - type: 'select_atom'
+        resolution: 'full'
+  # ====================================================================================== #

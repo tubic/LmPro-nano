@@ -69,6 +69,24 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
             help="probability of replacing a token with mask",
         )
         parser.add_argument(
+            "--full-cdr3-mask-prob",
+            default=0.0,
+            type=float,
+            help=(
+                "fraction of examples that mask the complete CDR3 span while "
+                "leaving CDR1/2 visible; 0 keeps the historical random CDR mask"
+            ),
+        )
+        parser.add_argument(
+            "--mask-context-mode",
+            default="legacy_pad",
+            choices=["legacy_pad", "keep_unmasked"],
+            help=(
+                "legacy_pad reproduces historical padding of unselected CDRs; "
+                "keep_unmasked preserves their native residues"
+            ),
+        )
+        parser.add_argument(
             "--leave-unmasked-prob",
             default=0.1,
             type=float,
@@ -206,7 +224,7 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
 
         # create masked input and targets
 
-        src_dataset, tgt_dataset = AntibodyMaskTokensDataset.apply_mask(
+        src_dataset, tgt_dataset, mask_mode_dataset = AntibodyMaskTokensDataset.apply_mask(
             seq_dataset,
             tag_dataset,
             self.source_dictionary,
@@ -215,6 +233,9 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
             mask_idx=self.mask_idx,
             seed=self.args.seed,
             mask_prob=self.args.mask_prob,
+            full_cdr3_mask_prob=self.args.full_cdr3_mask_prob,
+            mask_context_mode=self.args.mask_context_mode,
+            fixed_masking=split != getattr(self.args, "train_subset", "train"),
             leave_unmasked_prob=self.args.leave_unmasked_prob,
             random_token_prob=self.args.random_token_prob,
             # random_token_prob=0,     ###   self.args.random_token_prob,   不随机替换token, for BPE training
@@ -225,6 +246,7 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
 
             mask_multiple_length=self.args.mask_multiple_length,
             mask_stdev=self.args.mask_stdev,
+            return_mask_mode=True,
         )
 
         with data_utils.numpy_seed(self.args.seed):
@@ -252,6 +274,7 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
                         tgt_dataset,
                         pad_idx=self.source_dictionary.pad(),
                     ),
+                    "mask_mode": mask_mode_dataset,
                     "nsentences": NumSamplesDataset(),
                     "ntokens": NumelDataset(src_dataset, reduce=True),
                 },
@@ -310,5 +333,3 @@ class AntibodyMaskedLMTask(LegacyFairseqTask):
     @property
     def target_dictionary(self):
         return self.seq_dict
-
-

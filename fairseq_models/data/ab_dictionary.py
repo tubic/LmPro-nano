@@ -1,18 +1,22 @@
 from fairseq.data import Dictionary
 
-ALPHABET_FOR_INIT = '#SGTYVALRDKQWINFEPCMH'
+# Decoder-side residue order. MUST match AbbertDictionary's residue order (indices 4..23)
+# so that the AbBERT->GNN handoff (`antibody_seq - 3` in the datasets, the `x[:,4:24]` LM-head
+# slice in ab_roberta_base.py, and soft_forward) maps every amino acid to the SAME physicochemical
+# row. Keep ALPHABET_FOR_INIT, AbgenDictionary, and AbbertDictionary[4:24] in lock-step.
+ALPHABET_FOR_INIT = '#GSVATLYRQDENKPFICWMH'
 
 class AbgenDictionary(Dictionary):
     def __init__(self):
         self.symbols = [
-            '#', 'S', 'G', 'T', 'Y', 'V', 'A', 'L', 'R', 'D', 'K', 'Q', 'W', 'I', 'N', 'F', 'E', 'P', 'C', 'M', 'H'
+            '#', 'G', 'S', 'V', 'A', 'T', 'L', 'Y', 'R', 'Q', 'D', 'E', 'N', 'K', 'P', 'F', 'I', 'C', 'W', 'M', 'H'
         ]
         self.count = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         self.indices = {
-            '#': 0,  'S': 1, 'G': 2, 'T': 3, 'Y': 4, 'V': 5, 'A': 6, 'L': 7, 'R': 8, 'D': 9, 'K': 10, 
-            'Q': 11, 'W': 12, 'I': 13, 'N': 14, 'F': 15, 'E': 16, 'P': 17, 'C': 18, 'M': 19, 'H': 20
+            '#': 0,  'G': 1, 'S': 2, 'V': 3, 'A': 4, 'T': 5, 'L': 6, 'Y': 7, 'R': 8, 'Q': 9, 'D': 10,
+            'E': 11, 'N': 12, 'K': 13, 'P': 14, 'F': 15, 'I': 16, 'C': 17, 'W': 18, 'M': 19, 'H': 20
         }
-        self.nspecial = len(self.symbols) 
+        self.nspecial = len(self.symbols)
 
 
 class AbbertDictionary(Dictionary):
@@ -74,29 +78,33 @@ ATOM_TYPES = [
     'CZ3', 'NZ', 'OXT'
 ]
 
-RES_ATOM14 = [
-    ['', '', '', '', '', '', '', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'OG', '', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', '', '', '', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'OG1', 'CG2', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OH', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG1', 'CG2', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', '', '', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'NE', 'CZ', 'NH1', 'NH2', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'OD1', 'OD2', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'CE', 'NZ', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'OE1', 'NE2', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'NE1', 'CE2', 'CE3', 'CZ2', 'CZ3', 'CH2'],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG1', 'CG2', 'CD1', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'OD1', 'ND2', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'OE1', 'OE2', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'SG', '', '', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'SD', 'CE', '', '', '', '', '', ''],
-    ['N', 'CA', 'C', 'O', 'CB', 'CG', 'ND1', 'CD2', 'CE1', 'NE2', '', '', '', ''],
-]
+# atom14 heavy-atom names per residue, keyed by 1-letter code (order-independent).
+# RES_ATOM14 below is materialized in ALPHABET order, so it always tracks the vocab
+# and can never silently drift from AbgenDictionary again.
+_RES_ATOM14_BY_RES = {
+    '#': ['', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    'G': ['N', 'CA', 'C', 'O', '', '', '', '', '', '', '', '', '', ''],
+    'A': ['N', 'CA', 'C', 'O', 'CB', '', '', '', '', '', '', '', '', ''],
+    'S': ['N', 'CA', 'C', 'O', 'CB', 'OG', '', '', '', '', '', '', '', ''],
+    'C': ['N', 'CA', 'C', 'O', 'CB', 'SG', '', '', '', '', '', '', '', ''],
+    'T': ['N', 'CA', 'C', 'O', 'CB', 'OG1', 'CG2', '', '', '', '', '', '', ''],
+    'V': ['N', 'CA', 'C', 'O', 'CB', 'CG1', 'CG2', '', '', '', '', '', '', ''],
+    'P': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', '', '', '', '', '', '', ''],
+    'D': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'OD1', 'OD2', '', '', '', '', '', ''],
+    'N': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'OD1', 'ND2', '', '', '', '', '', ''],
+    'L': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', '', '', '', '', '', ''],
+    'I': ['N', 'CA', 'C', 'O', 'CB', 'CG1', 'CG2', 'CD1', '', '', '', '', '', ''],
+    'M': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'SD', 'CE', '', '', '', '', '', ''],
+    'E': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'OE1', 'OE2', '', '', '', '', ''],
+    'Q': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'OE1', 'NE2', '', '', '', '', ''],
+    'K': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'CE', 'NZ', '', '', '', '', ''],
+    'H': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'ND1', 'CD2', 'CE1', 'NE2', '', '', '', ''],
+    'F': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', '', '', ''],
+    'R': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'NE', 'CZ', 'NH1', 'NH2', '', '', ''],
+    'Y': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OH', '', ''],
+    'W': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'NE1', 'CE2', 'CE3', 'CZ2', 'CZ3', 'CH2'],
+}
+RES_ATOM14 = [_RES_ATOM14_BY_RES[s] for s in ALPHABET.symbols]
 
 UNK_LIST = [
     '6u8k',

@@ -33,6 +33,7 @@ class TransformerSentenceEncoderLayer(nn.Module):
         q_noise: float = 0.0,
         qn_block_size: int = 8,
         init_fn: Callable = None,
+        use_rope: bool = True,
     ) -> None:
         super().__init__()
 
@@ -45,6 +46,7 @@ class TransformerSentenceEncoderLayer(nn.Module):
         self.attention_dropout = attention_dropout
         self.q_noise = q_noise
         self.qn_block_size = qn_block_size
+        self.use_rope = use_rope
 
         self.dropout_module = FairseqDropout(
             dropout, module_name=self.__class__.__name__
@@ -105,6 +107,7 @@ class TransformerSentenceEncoderLayer(nn.Module):
             self_attention=True,
             q_noise=q_noise,
             qn_block_size=qn_block_size,
+            use_rope=self.use_rope,
         )
 
     def forward(

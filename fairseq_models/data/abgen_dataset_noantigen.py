@@ -49,6 +49,10 @@ class AntibodyOnlyDataset(FairseqDataset):
             all_lines = f.readlines()
             for line in tqdm(all_lines):
                 entry = json.loads(line)
+                # The no-antigen (VHH) decoder is backbone-only (antibody_A = [1,2,3,4]);
+                # keep only the first 4 atoms N,CA,C,O so coords stay [L,4,3] throughout
+                # (data on disk is atom14 [L,14,3]).
+                entry['antibody_coords'] = [c[:4] for c in entry['antibody_coords']]
                 assert len(entry['antibody_coords']) == len(entry['antibody_seq'])
                 for cdr in cdr_types:
                     if entry['antibody_cdr'].count(cdr) <= 4:

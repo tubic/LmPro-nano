@@ -1,0 +1,53 @@
+# 最终版 RDE-SKEMPI 配置文件 (已应用所有修正)
+# =================================
+
+# 模型相关配置
+model:
+  # DDG 预测头配置 (用于新添加的层)
+  ddg:
+    hidden_dim: 256 # 定义新预测层的维度
+
+  # RDE 微调配置 (用于冻结的、预训练的基础模型)
+  rde:
+    checkpoint: "outputs/enhanced_rde_pdbredo/run_20250702_201428/best_model.pt"
+    # 这里的参数必须与预训练时完全一致
+    input_dim: 128  # <-- 从 22 修改为 128，以匹配预训练模型
+    hidden_dim: 256 # <-- 这个保持不变，是正确的
+  
+  # 几何特征配置
+  geometric_options:
+    use: true
+    curvature_neighbors: 15
+    manifold_components: 5
+    use_laplacian: true
+    heat_kernel_timesteps: 10
+  
+  # 拓扑特征配置
+  topological_options:
+    use: true
+    max_homology_dim: 2
+    filtration_type: alpha
+    max_edge_length: 10.0
+    num_landscape_points: 20
+
+# 训练相关配置
+train:
+  seed: 42
+  batch_size: 8
+  num_epochs: 150
+  
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  
+  scheduler:
+    type: plateau
+    patience: 10
+    factor: 0.5
+    min_lr: 0.00001
+
+# 数据相关配置
+data:
+  num_cvfolds: 5
+  csv_path: "./data/SKEMPI_v2/skempi_v2.csv"
+  pdb_dir: "./data/SKEMPI_v2/PDBs"
+  cache_dir: "./data/SKEMPI_v2_cache"

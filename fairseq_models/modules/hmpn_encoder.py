@@ -108,6 +108,9 @@ class HierEGNNEncoder(nn.Module):
             nn.ReLU(),
             nn.Linear(args.hidden_size, args.hidden_size)
         )
+        self.pretrained_embedding_norm = None
+        if getattr(args, 'pretrained_embedding_norm', 'none') == 'layernorm':
+            self.pretrained_embedding_norm = nn.LayerNorm(args.encoder_embed_dim)
 
         # self.node_in = 6
         # self.node_in += args.hidden_size
@@ -137,6 +140,10 @@ class HierEGNNEncoder(nn.Module):
 
         # pretrained embedding fusion
         if antibody_N > 0:
+            if self.pretrained_embedding_norm is not None:
+                pretrained_embedding = self.pretrained_embedding_norm(
+                    pretrained_embedding
+                )
             new_item = h_res[:, :antibody_N].clone()
             new_item[paratope_mask] = self.W_fusion(
                 torch.cat((h_res[:, :antibody_N][paratope_mask], pretrained_embedding), dim=1)

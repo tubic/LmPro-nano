@@ -1,0 +1,15 @@
+# Formal corrected LmPro-Nano runtime used for the 2026-08 revision results.
+# Install the CUDA 12.4 PyTorch wheel from the official PyTorch index, then this file:
+#   pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r environment/requirements-main.txt
+numpy==1.23.3
+scipy==1.10.1
+biopython==1.83
+tqdm==4.66.2
+hydra-core==1.0.7
+omegaconf==2.0.6
+regex==2024.4.16
+sacrebleu==2.4.2
+tensorboard==2.14.0
+tensorboardX==2.6.5
+-e ./third_party/fairseq-0.10.2

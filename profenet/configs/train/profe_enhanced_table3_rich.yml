@@ -1,0 +1,45 @@
+model:
+  factory: profe_enhanced
+  method_name: ProFE-Net
+  rde_checkpoint: ./outputs/strengthened_rde_runs/run_20250902_122816/best_model.pt
+  backbone_dim: 256
+  # Match pretraining at non-mutated sites while withholding the WT rotamer
+  # hint at the mutated residue.
+  backbone_chi_mode: mask_mut
+  encoder:
+    node_feat_dim: 256
+    pair_feat_dim: 64
+    num_layers: 3
+    pair_atoms: 5
+    ga_block_opt:
+      num_heads: 4
+  head:
+    rich: true
+    readout_dim: 256
+    loss_alpha: 0.5
+    env_radius: 10.0
+  # Unused when head.rich=true (the rich branch pools via _scale_masks);
+  # kept only to document parity with the locked config.
+  pool:
+    mode: global_max
+    radius: 10.0
+    min_k: 16
+
+dataset:
+  protocol: rde3
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_rde_protocol
+  split_seed: 2022
+
+training:
+  seed: 2022
+  batch_size: 8
+  accumulation_steps: 4
+  steps_per_fold: 10000
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-2
+  max_grad_norm: 1.0
+  optimizer: adamw
+  precompute_backbone_context: true
+  context_batch_size: 4

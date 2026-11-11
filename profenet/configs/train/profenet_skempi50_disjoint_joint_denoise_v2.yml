@@ -1,0 +1,82 @@
+protocol:
+  name: profenet_skempi50_disjoint_joint_denoise_v2
+  purpose: reviewer-grade EnhancedRDE pretraining for ProFE-Net
+  checkpoint_selection: pdbredo_validation_loss_only
+  leakage_control: remove every source 50-percent-identity cluster containing a usable SKEMPI PDB
+  training_contract:
+    padding_mask: sequence_length
+    padding_aa_index: 20
+    chi_symmetry: project_zero_based_pi_periodic
+    nonfinite_policy: fail_closed
+    geometry_input: corrupted_coordinates
+
+model:
+  hidden_dim: 256
+  pair_dim: 128
+  n_layers: 6
+  n_heads: 16
+  dropout: 0.1
+  num_recycle: 0
+  aux_layer_idx: 2
+  use_chi_hint: true
+  gnn:
+    layers: 3
+    v_dim: 8
+    use_radius: false
+    radius: 12.0
+    k_neighbors: 16
+  ipa:
+    depth: 2
+    heads: 8
+    dropout: 0.1
+
+data:
+  pdbredo_dir: ./data/PDB_REDO
+  processed_dir: ./data/pdbredo_processed_final
+  clusters_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_clusters.txt
+  splits_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_splits.txt
+  cache_namespace: skempi50_disjoint_v1
+  load_precomputed_features: false
+  transform:
+    - type: random_patch
+      patch_size: 256
+    - type: add_atom_noise
+      noise_std: 0.02
+    - type: corrupt_chi_angle
+      ratio_mask: 0.10
+      add_noise: true
+
+  validation:
+    pdbredo_dir: ./data/PDB_REDO
+    processed_dir: ./data/pdbredo_processed_final
+    clusters_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_clusters.txt
+    splits_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_splits.txt
+    cache_namespace: skempi50_disjoint_v1
+    load_precomputed_features: false
+    transform:
+      - type: random_patch
+        patch_size: 256
+      - type: add_atom_noise
+        noise_std: 0.02
+      - type: corrupt_chi_angle
+        ratio_mask: 0.10
+        add_noise: true
+
+training:
+  seed: 42
+  output_dir: ./outputs/profenet_pretrain_v2
+  batch_size: 2
+  accumulation_steps: 1
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  max_iterations: 100000
+  val_interval: 1000
+  aux_loss_weight: 0.5
+  scheduler:
+    type: cosine_with_warmup
+    warmup_iterations: 2000
+  loss_weights:
+    chi_prediction_weights: [3.0, 2.0, 0.5, 0.5]
+    symmetry_aware: true
+    denoising: 1.0

@@ -49,8 +49,6 @@ class AntibodyComplexDataset(FairseqDataset):
             all_lines = f.readlines()
             for line in tqdm(all_lines):
                 entry = json.loads(line)
-                # print(len(entry['antibody_coords']))
-                print(entry['pdb'])
                 assert len(entry['antibody_coords']) == len(entry['antibody_seq'])
                 # assert len(entry['antigen_coords']) == len(entry['antigen_seq'])
                 for cdr in cdr_types:
@@ -70,10 +68,7 @@ class AntibodyComplexDataset(FairseqDataset):
 
                 l_coord, r_coord = torch.tensor(entry['antibody_coords'])[surface[0] - 1], torch.tensor(entry['antibody_coords'])[surface[-1] + 1]
                 n_span = len(surface) + 1
-                print(f"r_coord形状: {r_coord.shape}")
-                print(f"l_coord形状: {l_coord.shape}")
-                print(f"n_span值: {n_span}")
-                coord_offsets = (r_coord - l_coord).unsqueeze(0).expand(n_span - 1, 14, 3) 
+                coord_offsets = (r_coord - l_coord).unsqueeze(0).expand(n_span - 1, 14, 3)
                 coord_offsets = torch.cumsum(coord_offsets, dim=0)
                 mask_cdr_coords = l_coord + coord_offsets / n_span # [cdr_len, 14, 3]
                 mask_cdr_coords[:, 4:] = mask_cdr_coords[:, 1].unsqueeze(1) # regularize side chain atoms

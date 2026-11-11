@@ -1,0 +1,82 @@
+protocol:
+  name: profenet_skempi50_disjoint_v3_ablation_dropout30
+  purpose: controlled stronger hint-dropout ablation initialized from the same v2 backbone
+  checkpoint_selection: pdbredo_corrupt_target_total_loss_only
+  training_contract:
+    chi_target: corrupt
+    chi_hint_encoding: masked_and_missing_as_zero_sincos
+    masked_chi_aux_weight: 0.5
+    chi_hint_dropout_prob: 0.30
+
+model:
+  hidden_dim: 256
+  pair_dim: 128
+  n_layers: 6
+  n_heads: 16
+  dropout: 0.1
+  num_recycle: 0
+  aux_layer_idx: 2
+  use_chi_hint: true
+  chi_hint_dropout_prob: 0.30
+  gnn:
+    layers: 3
+    v_dim: 8
+    use_radius: false
+    radius: 12.0
+    k_neighbors: 16
+  ipa:
+    depth: 2
+    heads: 8
+    dropout: 0.1
+
+data:
+  pdbredo_dir: ./data/PDB_REDO
+  processed_dir: ./data/pdbredo_processed_final
+  clusters_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_clusters.txt
+  splits_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_splits.txt
+  cache_namespace: skempi50_disjoint_v1
+  load_precomputed_features: false
+  transform:
+    - type: random_patch
+      patch_size: 256
+    - type: add_atom_noise
+      noise_std: 0.02
+    - type: corrupt_chi_angle
+      ratio_mask: 0.10
+      add_noise: true
+  validation:
+    pdbredo_dir: ./data/PDB_REDO
+    processed_dir: ./data/pdbredo_processed_final
+    clusters_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_clusters.txt
+    splits_path: ./data/generated/pdbredo_skempi50_disjoint/pdbredo_splits.txt
+    cache_namespace: skempi50_disjoint_v1
+    load_precomputed_features: false
+    transform:
+      - type: random_patch
+        patch_size: 256
+      - type: add_atom_noise
+        noise_std: 0.02
+      - type: corrupt_chi_angle
+        ratio_mask: 0.10
+        add_noise: true
+
+training:
+  seed: 314159
+  output_dir: ./outputs/profenet_ablation_v3_dropout30
+  batch_size: 2
+  accumulation_steps: 1
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  max_iterations: 1000
+  val_interval: 1000
+  aux_loss_weight: 0.5
+  scheduler:
+    type: cosine_with_warmup
+    warmup_iterations: 100
+  loss_weights:
+    chi_prediction_weights: [3.0, 2.0, 0.5, 0.5]
+    symmetry_aware: true
+    chi_target: corrupt
+    masked_chi_aux_weight: 0.5
+    denoising: 1.0

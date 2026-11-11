@@ -1,0 +1,26 @@
+model:
+  input_dim: 128
+  hidden_dim: 256
+  output_dim: 2
+  use_geometric: true
+  use_topological: true
+  geometric_options:
+    curvature_neighbors: 15
+    manifold_components: 5
+  topological_options:
+    max_homology_dim: 2
+    filtration_type: "alpha"
+
+data:
+  dataset_path: "./data/pdbredo/"
+  
+training:
+  batch_size: 16
+  num_epochs: 50
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  save_path: "./trained_models/enhanced_RDE.pt"
+
+physics:
+  temperature: 298.15
+  use_free_energy_decomposition: true

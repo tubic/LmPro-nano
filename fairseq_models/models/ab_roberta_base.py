@@ -93,8 +93,12 @@ class AntibodyRobertaModel(FairseqEncoderModel):
             else:
                 self.structure_decoder = FullshotRefineDecoder(self.args)
     
-        # We follow BERT's random weight initialization
-        self.apply(init_bert_params)
+        # BERT initialization belongs to the language encoder and prefix
+        # module. Structure decoders initialize their geometry layers with
+        # Xavier in their own constructors and must not be overwritten here.
+        self.encoder.apply(init_bert_params)
+        if hasattr(self, "prefix_encoder"):
+            self.prefix_encoder.apply(init_bert_params)
 
 
 
@@ -230,12 +234,38 @@ class AntibodyRobertaModel(FairseqEncoderModel):
         parser.add_argument('--finetune-bert-scheme', type=str, default='fixed', choices=['prefix_tuning', 'fixed', 'all_tuning'])
         parser.add_argument('--pre-seq-len', type=int, default=1)
         parser.add_argument('--prefix-projection', type=bool, default=True)
+        parser.add_argument(
+            '--use-rope',
+            type=utils.eval_bool,
+            default=True,
+            help='use rotary position embeddings instead of learned absolute positions',
+        )
+        parser.add_argument(
+            '--use-residual-mlp',
+            type=utils.eval_bool,
+            default=True,
+            help='apply the three-layer residual MLP before the decoder sequence head',
+        )
 
         parser.add_argument('--refine-iteration', type=int, default=5)
+        parser.add_argument('--bptt-iterations', type=int, default=-1,
+                            help='number of trailing refinement iterations to backpropagate '
+                                 'through; -1 (default) = all of them, which lets the design '
+                                 'loss train the framework encoder and prefix encoder. '
+                                 'Reduce only if activations do not fit in memory.')
 
         parser.add_argument('--block_size', type=int, default=8)
 
         parser.add_argument('--use-no-pretrain', type=bool, default=False)
+        parser.add_argument(
+            '--pretrained-embedding-norm',
+            choices=['none', 'layernorm'],
+            default='none',
+            help=(
+                'normalization applied to frozen AbBERT token embeddings before '
+                'they are fused into the structure decoder'
+            ),
+        )
 
         # finetune or pretrain
         parser.add_argument('--finetune', action='store_true', default=False)
@@ -488,6 +518,7 @@ class RobertaEncoder(FairseqEncoder):
             activation_fn=args.activation_fn,
             q_noise=args.quant_noise_pq,
             qn_block_size=args.quant_noise_pq_block_size,
+            use_rope=getattr(args, "use_rope", True),
         )
         args.untie_weights_roberta = getattr(args, "untie_weights_roberta", False)
 
@@ -570,6 +601,9 @@ def base_architecture(args):
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 3072)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 12)
+    # Rotary position embedding in AbBERT attention (replaces learned absolute PE).
+    args.use_rope = getattr(args, "use_rope", True)
+    args.use_residual_mlp = getattr(args, "use_residual_mlp", True)
 
     args.activation_fn = getattr(args, "activation_fn", "gelu")
     args.pooler_activation_fn = getattr(args, "pooler_activation_fn", "tanh")
@@ -589,4 +623,3 @@ def base_architecture(args):
 @register_model_architecture("antibody_roberta", "antibody_roberta_base")
 def roberta_base_architecture(args):
     base_architecture(args)
-

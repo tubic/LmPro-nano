@@ -1,0 +1,47 @@
+# Single-factor candidate for fold-specific inner-development screening only.
+# Relative to the matched v2 control, only the effective-batch Pearson term is
+# enabled; the global-max readout and all other training settings are unchanged.
+model:
+  factory: profe_enhanced
+  method_name: ProFE-Net-v2-effective-pearson
+  rde_checkpoint: ./outputs/profenet_pretrain_v2/profenet_2026_08_04__21_41_51_skempi50_disjoint_joint_denoise_maskfix_v2_full/best_backbone.pt
+  backbone_dim: 256
+  backbone_chi_mode: mask_mut
+  encoder:
+    node_feat_dim: 256
+    pair_feat_dim: 64
+    num_layers: 3
+    pair_atoms: 5
+    ga_block_opt:
+      num_heads: 4
+  head:
+    rich: false
+    readout_dim: 256
+    loss_alpha: 0.5
+    sign_loss_weight: 0.0
+    sign_loss_temperature: 1.0
+    env_radius: 10.0
+  pool:
+    mode: global_max
+    radius: 10.0
+    min_k: 16
+
+dataset:
+  protocol: rde3
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_rde_protocol
+  split_seed: 2022
+
+training:
+  seed: 2022
+  batch_size: 8
+  accumulation_steps: 4
+  steps_per_fold: 5000
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-2
+  max_grad_norm: 1.0
+  optimizer: adamw
+  precompute_backbone_context: true
+  context_batch_size: 4
+  aggregate_loss_across_accumulation: true

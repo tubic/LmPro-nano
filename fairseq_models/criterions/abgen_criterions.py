@@ -12,6 +12,10 @@ from fairseq import metrics
 from fairseq.criterions import LegacyFairseqCriterion, register_criterion
 
 from fairseq_models.modules.utils import compute_rmsd
+from fairseq_models.modules.loss_normalization import (
+    LOSS_NORMALIZATIONS,
+    combine_generation_loss,
+)
 
 @register_criterion("antibody_generation_loss")
 class AntibodyGenerationLoss(LegacyFairseqCriterion):
@@ -34,6 +38,16 @@ class AntibodyGenerationLoss(LegacyFairseqCriterion):
                             help='loss scale of decoder sloss')
         parser.add_argument('--loss-scale-dec-xloss', type=float, default=1.,
                             help='loss scale of decoder xloss')
+        parser.add_argument(
+            '--loss-normalization',
+            choices=LOSS_NORMALIZATIONS,
+            default='legacy',
+            help=(
+                'legacy reproduces the historical double-normalized objective; '
+                'token_mean returns a token-summed loss so Fairseq performs the '
+                'only gradient normalization'
+            ),
+        )
 
     def forward(self, model, sample):
         """Compute the loss for the given sample.
@@ -62,12 +76,34 @@ class AntibodyGenerationLoss(LegacyFairseqCriterion):
         if masked_tokens is not None:
             targets = targets[masked_tokens]
         if transformer_logits is not None:
-            sloss = self.cross_entropy(
+            encoder_sloss_sum = self.cross_entropy(
                 transformer_logits.view(-1, transformer_logits.size(-1)),
                 targets.view(-1) - 3, 
-            ) / sample_size / math.log(2)
+            ) / math.log(2)
         else:
-            sloss = 0
+            encoder_sloss_sum = batched_seq.new_zeros(())
+
+        decoder_sloss = (
+            out.nll
+            if torch.is_tensor(out.nll)
+            else encoder_sloss_sum.new_tensor(out.nll)
+        )
+        decoder_xloss = (
+            out.xloss
+            if torch.is_tensor(out.xloss)
+            else encoder_sloss_sum.new_tensor(out.xloss)
+        )
+        loss_mode = getattr(self.args, 'loss_normalization', 'legacy')
+        loss, encoder_sloss = combine_generation_loss(
+            encoder_sloss_sum,
+            decoder_sloss,
+            decoder_xloss,
+            sample_size,
+            self.args.loss_scale_enc,
+            self.args.loss_scale_dec_sloss,
+            self.args.loss_scale_dec_xloss,
+            loss_mode,
+        )
 
         # compute RMSD score
         bind_X, bind_S, _, _ = paratope
@@ -85,19 +121,29 @@ class AntibodyGenerationLoss(LegacyFairseqCriterion):
             )
         rmsd = sum(rmsd) / len(rmsd)
 
-        # loss sum
-        loss =  self.args.loss_scale_enc * sloss + \
-                self.args.loss_scale_dec_xloss * out.xloss + \
-                self.args.loss_scale_dec_sloss * out.nll
-        
-        logging_output = {
-            "encoder_sloss": sloss.item(),
-            "decoder_sloss": out.nll,
-            "decoder_xloss": out.xloss,
-            "sample_size": sample_size.item(),
-            "loss": loss.item(),
-            "rmsd": rmsd.item()
-        }
+        if loss_mode == 'token_mean':
+            # Sums make validation loss a genuine weighted mean and therefore a
+            # valid early-stopping signal for the corrected objective.
+            logging_output = {
+                "encoder_sloss": encoder_sloss_sum.item(),
+                "decoder_sloss": (decoder_sloss * sample_size).item(),
+                "decoder_xloss": (decoder_xloss * sample_size).item(),
+                "sample_size": sample_size.item(),
+                "loss": loss.item(),
+                "rmsd": rmsd.item() * batched_seq.size(0),
+                "rmsd_sample_size": batched_seq.size(0),
+                "token_mean_loss": 1,
+            }
+        else:
+            # Preserve historical logging and checkpoint-selection behaviour.
+            logging_output = {
+                "encoder_sloss": encoder_sloss.item(),
+                "decoder_sloss": decoder_sloss,
+                "decoder_xloss": decoder_xloss,
+                "sample_size": sample_size.item(),
+                "loss": loss.item(),
+                "rmsd": rmsd.item()
+            }
         return loss, sample_size.item(), logging_output
 
     @staticmethod
@@ -109,6 +155,31 @@ class AntibodyGenerationLoss(LegacyFairseqCriterion):
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
         loss = sum(log.get("loss", 0) for log in logging_outputs)
         rmsd = sum(log.get("rmsd", 0) for log in logging_outputs)
+
+        if sum(log.get("token_mean_loss", 0) for log in logging_outputs):
+            rmsd_sample_size = sum(
+                log.get("rmsd_sample_size", 0) for log in logging_outputs
+            )
+            metrics.log_scalar(
+                "encoder_sloss", encoder_sloss / sample_size, sample_size, round=3
+            )
+            metrics.log_derived(
+                "encoder_ppl", lambda meters: utils.get_perplexity(meters["encoder_sloss"].avg)
+            )
+            metrics.log_scalar(
+                "decoder_sloss", decoder_sloss / sample_size, sample_size, round=3
+            )
+            metrics.log_derived(
+                "decoder_ppl", lambda meters: utils.get_perplexity(meters["decoder_sloss"].avg)
+            )
+            metrics.log_scalar(
+                "decoder_xloss", decoder_xloss / sample_size, sample_size, round=3
+            )
+            metrics.log_scalar("loss", loss / sample_size, sample_size, round=3)
+            metrics.log_scalar(
+                "rmsd", rmsd / rmsd_sample_size, rmsd_sample_size, round=3
+            )
+            return
         
         metrics.log_scalar(
             "encoder_sloss", encoder_sloss, sample_size, round=3

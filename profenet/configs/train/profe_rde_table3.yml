@@ -1,0 +1,31 @@
+model:
+  factory: rde_profe
+  method_name: ProFE-RDE-baseline
+  # Replace with the best checkpoint from train_rde.py after full pretraining.
+  rde_checkpoint: ./trained_models/RDE.pt
+  backbone_dim: 128
+  pooling: max
+  antisymmetric_output: true
+  encoder:
+    node_feat_dim: 128
+    pair_feat_dim: 64
+    num_layers: 3
+
+dataset:
+  protocol: rde3
+  csv_path: ./data/SKEMPI_v2/skempi_v2.csv
+  pdb_dir: ./data/SKEMPI_v2/PDBs
+  cache_dir: ./data/SKEMPI_v2_cache_rde_protocol
+  split_seed: 2022
+
+training:
+  seed: 2022
+  batch_size: 32
+  accumulation_steps: 1
+  steps_per_fold: 10000
+  learning_rate: 3.0e-4
+  weight_decay: 0.0
+  max_grad_norm: 100.0
+  optimizer: adam
+  precompute_backbone_context: true
+  context_batch_size: 32
